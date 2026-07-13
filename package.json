@@ -1,0 +1,70 @@
+{
+  "name": "web-event-kit",
+  "version": "0.0.1",
+  "description": "TypeScript event listener unifier — one add/remove interface that behaves identically across modern browsers, legacy IE (attachEvent), Cordova, and iOS WebKit, with vendor-prefix resolution, once/passive/signal emulation, and pointer→touch synthesis.",
+  "author": "Park Jungyoung <qkrwnss0509@gmail.com> (https://github.com/pjy0509)",
+  "type": "module",
+
+  "sideEffects": false,
+
+  "main": "dist/event-kit.cjs",
+  "module": "dist/event-kit.mjs",
+  "browser": "dist/event-kit.umd.js",
+  "types": "dist/index.d.ts",
+
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/event-kit.mjs",
+      "require": "./dist/event-kit.cjs",
+      "default": "./dist/event-kit.mjs"
+    }
+  },
+
+  "files": [
+    "dist/**",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+
+  "scripts": {
+    "build": "rollup -c",
+    "prepublishOnly": "npm run build"
+  },
+
+  "license": "MIT",
+
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pjy0509/web-event-kit.git"
+  },
+  "homepage": "https://pjy0509.github.io/example/web-event-kit/",
+  "keywords": [
+    "event",
+    "event-listener",
+    "addEventListener",
+    "attachEvent",
+    "polyfill",
+    "vendor-prefix",
+    "passive",
+    "once",
+    "abort-signal",
+    "pointer-events",
+    "touch-events",
+    "cordova",
+    "ie",
+    "browser",
+    "webview",
+    "pwa"
+  ],
+  "devDependencies": {
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-terser": "^0.4.4",
+    "@rollup/plugin-typescript": "^11.1.6",
+    "rollup": "^4.52.5",
+    "rollup-plugin-dts": "^6.2.3",
+    "tslib": "^2.8.1",
+    "typescript": "^5.9.3"
+  }
+}

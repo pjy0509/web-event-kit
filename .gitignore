@@ -1,0 +1,10 @@
+/node_modules/
+/node_modules/*
+/package-lock.json
+/.idea/
+/.idea/*
+/src/index.html
+/dist
+/dist/*
+
+web-event-kit.iml
