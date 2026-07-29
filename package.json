@@ -1,6 +1,6 @@
 {
   "name": "web-event-kit",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "TypeScript event listener unifier — one add/remove interface that behaves identically across modern browsers, legacy IE (attachEvent), Cordova, and iOS WebKit, with vendor-prefix resolution, once/passive/signal emulation, and pointer→touch synthesis.",
   "author": "Park Jungyoung <qkrwnss0509@gmail.com> (https://github.com/pjy0509)",
   "type": "module",
@@ -15,7 +15,9 @@
       "import": "./dist/event-kit.mjs",
       "require": "./dist/event-kit.cjs",
       "default": "./dist/event-kit.mjs"
-    }
+    },
+    "./dist/*": "./dist/*",
+    "./package.json": "./package.json"
   },
   "files": [
     "dist/**",

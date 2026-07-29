@@ -7,12 +7,10 @@ import {KEY_CODE_MAP} from './utils/key-code-map';
 
 export {SupportedListenerOptions};
 
-declare global {
-    interface EventTarget {
-        attachEvent?(type: string, listener: (event: Event) => void): void;
+interface EventTargetLike extends EventTarget {
+    attachEvent?(type: string, listener: (event: Event) => void): void;
 
-        detachEvent?(type: string, listener: (event: Event) => void): void;
-    }
+    detachEvent?(type: string, listener: (event: Event) => void): void;
 }
 
 interface LegacyEvent extends Event {
@@ -286,8 +284,8 @@ function attachNativeListener(record: ListenerRecord): boolean {
         return true;
     }
 
-    if (typeof target.attachEvent === 'function') {
-        target.attachEvent('on' + record.resolvedType, record.wrapper);
+    if (typeof (target as EventTargetLike).attachEvent === 'function') {
+        (target as EventTargetLike).attachEvent!('on' + record.resolvedType, record.wrapper);
 
         return true;
     }
@@ -299,7 +297,7 @@ function detachNativeListener(record: ListenerRecord): void {
     const target: EventTarget = record.target;
 
     if (typeof target.removeEventListener === 'function') return target.removeEventListener(record.resolvedType, record.wrapper, toNativeListenerOptions(record));
-    if (typeof target.detachEvent === 'function') return target.detachEvent('on' + record.resolvedType, record.wrapper);
+    if (typeof (target as EventTargetLike).detachEvent === 'function') return (target as EventTargetLike).detachEvent!('on' + record.resolvedType, record.wrapper);
 }
 
 function releaseListenerRecord(record: ListenerRecord): void {
@@ -430,7 +428,7 @@ const EventKit: EventKitInstance = {
         const resolvedType: string = resolveEventType(target, type);
 
         if (typeof target.removeEventListener === 'function') return target.removeEventListener(resolvedType, callback, toNativeListenerOptions(normalized));
-        if (typeof target.detachEvent === 'function' && typeof callback === 'function') return target.detachEvent('on' + resolvedType, callback as IEWrapper);
+        if (typeof (target as EventTargetLike).detachEvent === 'function' && typeof callback === 'function') return (target as EventTargetLike).detachEvent!('on' + resolvedType, callback as IEWrapper);
     },
 };
 
