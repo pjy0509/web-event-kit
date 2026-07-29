@@ -1,3 +1,7 @@
+import {getGlobal, GlobalLike} from "./get-global";
+
+const GLOBAL: GlobalLike = getGlobal();
+
 export interface SupportedListenerOptions {
     once: boolean;
     passive: boolean;
@@ -25,16 +29,16 @@ const NOOP: () => void = function (): void {
 }
 
 function resolveProbeTarget(): EventTarget | undefined {
-    if (typeof globalThis.document !== 'undefined' && typeof globalThis.document.createDocumentFragment === 'function') {
+    if (typeof GLOBAL.document !== 'undefined' && typeof GLOBAL.document.createDocumentFragment === 'function') {
         try {
-            return globalThis.document.createDocumentFragment();
+            return GLOBAL.document.createDocumentFragment();
         } catch (_: unknown) {
         }
     }
 
-    if (typeof globalThis.EventTarget === 'function') {
+    if (typeof GLOBAL.EventTarget === 'function') {
         try {
-            return new globalThis.EventTarget();
+            return new GLOBAL.EventTarget();
         } catch (_: unknown) {
         }
     }

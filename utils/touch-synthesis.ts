@@ -1,3 +1,7 @@
+import {getGlobal, GlobalLike} from "./get-global";
+
+const GLOBAL: GlobalLike = getGlobal();
+
 export interface SyntheticTouch {
     identifier: number;
     target: EventTarget | null;
@@ -76,15 +80,15 @@ function findTouchIndex(identifier: number): number {
 }
 
 function scrollOffsetX(): number {
-    if (typeof globalThis.pageXOffset === 'number') return globalThis.pageXOffset;
-    if (typeof globalThis.document !== 'undefined' && typeof globalThis.document.documentElement !== 'undefined') return globalThis.document.documentElement.scrollLeft;
+    if (typeof GLOBAL.pageXOffset === 'number') return GLOBAL.pageXOffset;
+    if (typeof GLOBAL.document !== 'undefined' && typeof GLOBAL.document.documentElement !== 'undefined') return GLOBAL.document.documentElement.scrollLeft;
 
     return 0;
 }
 
 function scrollOffsetY(): number {
-    if (typeof globalThis.pageYOffset === 'number') return globalThis.pageYOffset;
-    if (typeof globalThis.document !== 'undefined' && typeof globalThis.document.documentElement !== 'undefined') return globalThis.document.documentElement.scrollTop;
+    if (typeof GLOBAL.pageYOffset === 'number') return GLOBAL.pageYOffset;
+    if (typeof GLOBAL.document !== 'undefined' && typeof GLOBAL.document.documentElement !== 'undefined') return GLOBAL.document.documentElement.scrollTop;
 
     return 0;
 }
@@ -109,11 +113,27 @@ function createSyntheticTouch(event: PointerLikeEvent, target: EventTarget | nul
     };
 }
 
-function defineTouchList(event: Event, property: string, list: SyntheticTouchList): void {
+export interface EventPatchLike {
+    property: string;
+    had: boolean;
+    previous: unknown;
+}
+
+function defineTouchList(event: Event, property: string, list: SyntheticTouchList, patches: EventPatchLike[]): void {
+    const holder: Record<string, unknown> = event as unknown as Record<string, unknown>;
+    let had: boolean = false;
+
+    try {
+        had = Object.prototype.hasOwnProperty.call(event, property);
+    } catch (_: unknown) {
+    }
+
+    patches.push({property: property, had: had, previous: had ? holder[property] : undefined});
+
     try {
         Object.defineProperty(event, property, {value: list, configurable: true});
     } catch (_: unknown) {
-        (event as unknown as Record<string, unknown>)[property] = list;
+        holder[property] = list;
     }
 }
 
@@ -127,7 +147,7 @@ function filterByTarget(touches: SyntheticTouch[], target: EventTarget | null): 
     return filtered;
 }
 
-export function synthesizeTouchEvent(event: Event, resolvedType: string): void {
+export function synthesizeTouchEvent(event: Event, resolvedType: string, patches: EventPatchLike[]): void {
     const phase: TouchPhase | undefined = POINTER_PHASE_MAP[resolvedType];
 
     if (typeof phase === 'undefined') return;
@@ -146,7 +166,7 @@ export function synthesizeTouchEvent(event: Event, resolvedType: string): void {
         if (index > -1) ACTIVE_TOUCHES.splice(index, 1);
     }
 
-    defineTouchList(event, 'touches', createTouchList(ACTIVE_TOUCHES));
-    defineTouchList(event, 'targetTouches', createTouchList(filterByTarget(ACTIVE_TOUCHES, originTarget)));
-    defineTouchList(event, 'changedTouches', createTouchList([touch]));
+    defineTouchList(event, 'touches', createTouchList(ACTIVE_TOUCHES), patches);
+    defineTouchList(event, 'targetTouches', createTouchList(filterByTarget(ACTIVE_TOUCHES, originTarget)), patches);
+    defineTouchList(event, 'changedTouches', createTouchList([touch]), patches);
 }

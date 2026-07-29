@@ -1,7 +1,8 @@
-import packageJSON from "./package.json" assert {type: 'json'};
+import {getGlobal, GlobalLike} from "./utils/get-global";
+import packageJSON from "./package.json" with {type: 'json'};
 import {resolveEventType} from './utils/resolve-event-type';
 import {NormalizedListenerOptions, normalizeListenerOptions, SUPPORTED_LISTENER_OPTIONS, SupportedListenerOptions, toNativeListenerOptions} from './utils/supported-listener-options';
-import {isPointerEventType, isTouchEventType, synthesizeTouchEvent} from './utils/touch-synthesis';
+import {EventPatchLike as EventPatch, isPointerEventType, isTouchEventType, synthesizeTouchEvent} from './utils/touch-synthesis';
 import {KEY_CODE_MAP} from './utils/key-code-map';
 
 export {SupportedListenerOptions};
@@ -29,6 +30,7 @@ interface IEWrapperRecord {
 }
 
 interface ListenerRecord extends IEWrapperRecord {
+    bucket: ListenerRecord[];
     resolvedType: string;
     capture: boolean;
     once: boolean;
@@ -120,13 +122,43 @@ export interface EventKitInstance {
     remove(target: EventTarget, type: string, callback: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
 }
 
+const GLOBAL: GlobalLike = getGlobal();
 const LISTENER_STORE: ListenerRecord[] = [];
 const NOOP: () => void = function (): void {
 }
 
+const STORE_KEY: string = '__webEventKitListeners__';
+
+function resolveBucket(target: EventTarget, create: boolean): ListenerRecord[] {
+    const holder: Record<string, unknown> = target as unknown as Record<string, unknown>;
+
+    try {
+        const existing: unknown = holder[STORE_KEY];
+
+        if (typeof existing !== 'undefined' && existing !== null) return existing as ListenerRecord[];
+        if (!create) return LISTENER_STORE;
+
+        const bucket: ListenerRecord[] = [];
+
+        try {
+            Object.defineProperty(target, STORE_KEY, {value: bucket, configurable: true, enumerable: false, writable: true});
+        } catch (_: unknown) {
+            holder[STORE_KEY] = bucket;
+        }
+
+        if (holder[STORE_KEY] !== bucket) return LISTENER_STORE;
+
+        return bucket;
+    } catch (_: unknown) {
+        return LISTENER_STORE;
+    }
+}
+
 function findListenerRecord(target: EventTarget, type: string, callback: EventListenerOrEventListenerObject, capture: boolean): ListenerRecord | undefined {
-    for (let i: number = 0; i < LISTENER_STORE.length; i++) {
-        const record: ListenerRecord = LISTENER_STORE[i];
+    const bucket: ListenerRecord[] = resolveBucket(target, false);
+
+    for (let i: number = 0; i < bucket.length; i++) {
+        const record: ListenerRecord = bucket[i];
 
         if (record.target === target && record.type === type && record.callback === callback && record.capture === capture) return record;
     }
@@ -135,9 +167,11 @@ function findListenerRecord(target: EventTarget, type: string, callback: EventLi
 }
 
 function removeListenerRecord(record: ListenerRecord): void {
-    for (let i: number = 0; i < LISTENER_STORE.length; i++) {
-        if (LISTENER_STORE[i] === record) {
-            LISTENER_STORE.splice(i, 1);
+    const bucket: ListenerRecord[] = record.bucket;
+
+    for (let i: number = 0; i < bucket.length; i++) {
+        if (bucket[i] === record) {
+            bucket.splice(i, 1);
 
             return;
         }
@@ -161,6 +195,35 @@ function invokeCallback(callback: EventListenerOrEventListenerObject, target: Ev
     if (typeof callback === 'object' && callback !== null && typeof callback.handleEvent === 'function') return callback.handleEvent(event);
 }
 
+function patchEventProperty(event: Event, property: string, value: unknown, patches: EventPatch[]): void {
+    const holder: Record<string, unknown> = event as unknown as Record<string, unknown>;
+    let had: boolean = false;
+
+    try {
+        had = Object.prototype.hasOwnProperty.call(event, property);
+    } catch (_: unknown) {
+    }
+
+    patches.push({property: property, had: had, previous: had ? holder[property] : undefined});
+
+    defineEventProperty(event, property, value);
+}
+
+function restoreEventProperties(event: Event, patches: EventPatch[]): void {
+    const holder: Record<string, unknown> = event as unknown as Record<string, unknown>;
+
+    for (let i: number = patches.length - 1; i >= 0; i--) {
+        const patch: EventPatch = patches[i];
+
+        try {
+            if (patch.had) defineEventProperty(event, patch.property, patch.previous);
+            else delete holder[patch.property];
+        } catch (_: unknown) {
+        }
+    }
+
+    patches.length = 0;
+}
 
 function defineEventProperty(event: Event, property: string, value: unknown): void {
     try {
@@ -190,19 +253,27 @@ function fixKeyboardEvent(event: LegacyEvent): void {
 
 function createDispatcher(record: ListenerRecord): IEWrapper {
     return function (event: Event | undefined): void {
-        if (typeof event === 'undefined') event = (globalThis as unknown as { event?: Event }).event; // IE: implicit global event object
+        if (typeof event === 'undefined') event = GLOBAL.event; // IE: implicit global event object
         if (typeof event === 'undefined' || event === null) return;
         if (record.released) return;
 
         fixLegacyEvent(event as LegacyEvent, record.target);
 
         if (record.once) releaseListenerRecord(record);
-        if (record.passive && !SUPPORTED_LISTENER_OPTIONS.passive) event.preventDefault = passivePreventDefault.bind(event);
-        if (record.resolvedType !== record.type) defineEventProperty(event, 'type', record.type);
-        if (record.touch) synthesizeTouchEvent(event, record.resolvedType);
+
+        const patches: EventPatch[] = [];
+
+        if (record.passive && !SUPPORTED_LISTENER_OPTIONS.passive) patchEventProperty(event, 'preventDefault', passivePreventDefault.bind(event), patches);
+        if (record.resolvedType !== record.type) patchEventProperty(event, 'type', record.type, patches);
+        if (record.touch) synthesizeTouchEvent(event, record.resolvedType, patches);
 
         fixKeyboardEvent(event as LegacyEvent);
-        invokeCallback(record.callback, record.target, event);
+
+        try {
+            invokeCallback(record.callback, record.target, event);
+        } finally {
+            restoreEventProperties(event, patches);
+        }
     };
 }
 
@@ -245,7 +316,7 @@ function releaseListenerRecord(record: ListenerRecord): void {
 
     if (typeof record.signal !== 'undefined' && typeof record.onAbort === 'function' && typeof record.signal.removeEventListener === 'function') {
         try {
-            record.signal.removeEventListener('abort', record.onAbort);
+            record.signal.removeEventListener('abort', record.onAbort, false);
         } catch (_: unknown) {
         }
     }
@@ -259,7 +330,7 @@ function createEventPolyfill(type: string, init?: EventInit): Event {
     } catch (_: unknown) {
     }
 
-    const event: Event = globalThis.document.createEvent('Event');
+    const event: Event = (GLOBAL.document as Document).createEvent('Event');
 
     event.initEvent(type, typeof init !== 'undefined' && init.bubbles === true, typeof init !== 'undefined' && init.cancelable === true);
 
@@ -272,7 +343,7 @@ function createCustomEventPolyfill<T>(type: string, init?: CustomEventInit<T>): 
     } catch (_: unknown) {
     }
 
-    const event: CustomEvent<T> = globalThis.document.createEvent('CustomEvent') as CustomEvent<T>;
+    const event: CustomEvent<T> = (GLOBAL.document as Document).createEvent('CustomEvent') as CustomEvent<T>;
 
     event.initCustomEvent(type, typeof init !== 'undefined' && init.bubbles === true, typeof init !== 'undefined' && init.cancelable === true, typeof init !== 'undefined' && typeof init.detail !== 'undefined' ? init.detail : (null as T));
 
@@ -306,16 +377,13 @@ const EventKit: EventKitInstance = {
         const normalized: NormalizedListenerOptions = normalizeListenerOptions(options);
         const existing: ListenerRecord | undefined = findListenerRecord(target, type, callback, normalized.capture);
 
-        if (typeof existing !== 'undefined') {
-            return function (): void {
-                releaseListenerRecord(existing);
-            };
-        }
-
+        if (typeof existing !== 'undefined') return NOOP;
         if (typeof normalized.signal !== 'undefined' && normalized.signal.aborted) return NOOP;
 
         const resolvedType: string = resolveEventType(target, type);
+        const bucket: ListenerRecord[] = resolveBucket(target, true);
         const record: ListenerRecord = {
+            bucket: bucket,
             target: target,
             type: type,
             callback: callback,
@@ -334,14 +402,14 @@ const EventKit: EventKitInstance = {
 
         if (!attachNativeListener(record)) return NOOP;
 
-        LISTENER_STORE.push(record);
+        bucket.push(record);
 
         if (typeof record.signal !== 'undefined' && typeof record.signal.addEventListener === 'function') {
             record.onAbort = function (): void {
                 releaseListenerRecord(record);
             };
 
-            record.signal.addEventListener('abort', record.onAbort, {once: true});
+            record.signal.addEventListener('abort', record.onAbort, false);
         }
 
         return function (): void {

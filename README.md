@@ -2,6 +2,8 @@
 ![bundle size](https://img.shields.io/bundlephobia/minzip/web-event-kit)
 ![types](https://img.shields.io/npm/types/web-event-kit)
 
+*English · [한국어](./README.ko.md)*
+
 # web-event-kit
 
 A tiny TypeScript library that unifies event listening behind a single
@@ -14,7 +16,11 @@ pointer→touch synthesis for pointer-only engines.
 npm install web-event-kit
 ```
 
+The bundle is self-contained — no other scripts are required.
+
 ## API at a glance
+
+`EventKit` is a singleton.
 
 | Member                                              | Signature | Description |
 |-----------------------------------------------------| --- | --- |
@@ -83,16 +89,14 @@ The bundle is self-contained — no other scripts are required.
 
 ## TypeScript
 
-The instance shape is exported as `EventKitInstance`; the release function type
-as `ReleaseEventListener`.
+The instance shape is exported as `EventKitInstance`, the release function type as
+`ReleaseEventListener`, and the support-flag shape as `SupportedListenerOptions`.
 
 ```ts
 import EventKit, { type EventKitInstance, type ReleaseEventListener } from 'web-event-kit'
 
 const release: ReleaseEventListener = EventKit.add(video, 'webkitbeginfullscreen', onEnterFullscreen)
 ```
-
----
 
 ## How types are resolved
 
@@ -111,7 +115,7 @@ const release: ReleaseEventListener = EventKit.add(video, 'webkitbeginfullscreen
    `fullscreenchange` → `webkitfullscreenchange` → … → `MSFullscreenChange`,
    `touchstart` → `pointerdown` → `MSPointerDown`,
    `transitionend` → `webkitTransitionEnd` → `oTransitionEnd`,
-   `animationend` → `webkitAnimationEnd`, `focus` → `focusin`, and so on —
+   `animationend` → `webkitAnimationEnd`, and so on —
    probed via `on*` attributes plus `style.transition` / `style.animation` /
    `requestFullscreen` capability tests.
 4. **Generic vendor probing** with `webkit`, `moz`, `ms`, `MS`, `o`, `O` prefixes.
@@ -121,34 +125,40 @@ const release: ReleaseEventListener = EventKit.add(video, 'webkitbeginfullscreen
 Whenever the resolved type differs from the requested one, the callback still
 observes `event.type` equal to the type it asked for.
 
+---
+
 ## Notes
 
 - **`once` and `signal` are always emulated**, even where natively supported,
   so the kit's internal registry stays consistent and duplicate-detection,
   release functions, and `remove` behave identically on every engine.
-- **`passive` is forwarded natively where supported**; where it isn't, the
-  kit replaces `preventDefault` with a no-op that logs an error, matching the
-  spec ("does nothing" + console error).
+- **`passive` is forwarded natively where supported**; where it isn't, the kit swaps
+  `preventDefault` for a no-op so the listener behaves as the spec describes.
 - **`capture` degrades gracefully**: option-object → `{capture}` → boolean
   third argument, depending on what the engine understands. `attachEvent`
   engines only ever bubble, mirroring native IE behavior.
-- **IE (`attachEvent`) listeners are wrapped**, and the wrapper is tracked in an
-  internal record store keyed by `(target, type, callback)` so `remove` and the
-  release function detach the exact wrapper that was attached. The wrapper
+- **IE (`attachEvent`) listeners are wrapped**, and the wrapper is tracked on the target
+  itself, keyed by `(type, callback, capture)`, so `remove` and the release function
+  detach the exact wrapper that was attached — and the records are collected with the
+  target rather than outliving it. The wrapper
   repairs `event.currentTarget`, derives `event.target` from `srcElement`,
   shims `preventDefault` (`returnValue = false`) and `stopPropagation`
   (`cancelBubble = true`), and fills `KeyboardEvent.code` from `keyCode`.
-- **Touch on pointer-only engines**: `touch*` listeners that resolve to
-  `pointer*` / `MSPointer*` receive events decorated with W3C-shaped `touches`,
-  `targetTouches`, and `changedTouches` TouchLists synthesized from the active
-  pointer set (identifier, client/page/screen coordinates, radius, force).
-- **Duplicate registrations** (same target, type, callback, `capture` flag)
-  are ignored per the `addEventListener` spec; `add` returns the existing
-  registration's release function.
+- **Touch on pointer-only engines**: `touch*` listeners that resolve to `pointer*` /
+  `MSPointer*` receive events decorated with W3C-shaped `touches`, `targetTouches`, and
+  `changedTouches` TouchLists synthesized from the active pointer set (identifier,
+  client/page/screen coordinates, radius, force).
+- **Decorations are scoped to the listener that asked for them.** The same `Event` object
+  is handed to every listener, so the kit restores `type`, `preventDefault`, and the
+  synthesized TouchLists once your callback returns — a `pointerdown` listener never sees
+  what a `touchstart` listener asked for.
+- **Duplicate registrations** (same target, type, callback, `capture` flag) are ignored
+  per the `addEventListener` spec, and `add` hands back a release function that does
+  nothing — detaching is the first registrant's to do.
 - If no kit-managed record matches, `remove` falls through to the native
   `removeEventListener` (with the same type resolution), so listeners attached
   outside the kit are still detached.
 
-## License
+## Browser support
 
-MIT
+Runs down to **IE 9**.
